@@ -11,7 +11,7 @@ To overcome the limitations of rigid frequentist methods, this project introduce
 2. **Information Theory Metrics**: Utilizing `infotheo` to map non-linear Genotype-by-Environment (GxE) networks via **Mutual Information**, quantify stability using **Shannon Entropy**, and dynamically assign weights for a Multi-Trait Selection Index based on informational channels.
 
 ## 📂 Repository Structure
-* `Dados.xlsx`: Raw experimental phenotypic dataset (Yield, Hectoliter Weight, Thousand-Kernel Weight, Plant Height) collected across multiple environments.
+* `Data.xlsx`: Raw experimental phenotypic dataset (Yield, Hectoliter Weight, Thousand-Kernel Weight, Plant Height) collected across multiple environments.
 * `Mutual Information for Plant Breeding.Rmd`: The core R Markdown script containing the fully reproducible pipeline.
 * `Mutual-Information-for-Plant-Breeding.pdf`: The compiled scientific report containing narrative explanations, executable code, and high-resolution visualizations.
 * `plots/`: Folder intended for the exported high-resolution PNG plots (e.g., GxE Reaction Norms, Environmental Heatmap, Selection Quadrants).
@@ -24,14 +24,14 @@ To run this analysis locally and ensure strict reproducibility, follow these ste
    git clone [https://github.com/your-username/wheat-bayesian-infotheory.git](https://github.com/your-username/wheat-bayesian-infotheory.git)
    ```
 
-1. Open the R project or set your working directory to the cloned folder.
+2. Open the R project or set your working directory to the cloned folder.
 
-2. Ensure you have the following R packages installed:
+3. Ensure you have the following R packages installed:
 
-```r
-install.packages(c("tidyverse", "rstanarm", "tidybayes", "infotheo", "readxl"))
+   ```r
+   install.packages(c("tidyverse", "rstanarm", "tidybayes", "infotheo", "readxl"))
 
-```
+   ```
 Note: rstanarm provides pre-compiled Stan models, meaning you do not need C++ compilers (like Rtools) configured on your machine to run the Bayesian sampling.
 
-3. Open the Mutual Information for Plant Breeding.Rmd file and click Knit to compile the report and automatically generate the plot assets.
+4. Open the Mutual Information for Plant Breeding.Rmd file and click Knit to compile the report and automatically generate the plot assets.
