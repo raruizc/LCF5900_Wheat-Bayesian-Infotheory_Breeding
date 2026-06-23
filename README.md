@@ -13,8 +13,7 @@ To overcome the limitations of rigid frequentist methods, this project introduce
 ## 📂 Repository Structure
 * `Data.xlsx`: Raw experimental phenotypic dataset (Yield, Hectoliter Weight, Thousand-Kernel Weight, Plant Height) collected across multiple environments.
 * `Mutual Information for Plant Breeding.Rmd`: The core R Markdown script containing the fully reproducible pipeline.
-* `Mutual-Information-for-Plant-Breeding.pdf`: The compiled scientific report containing narrative explanations, executable code, and high-resolution visualizations.
-* `plots/`: Folder intended for the exported high-resolution PNG plots (e.g., GxE Reaction Norms, Environmental Heatmap, Selection Quadrants).
+* `Mutual-Information-for-Plant-Breeding.pdf`: The compiled scientific report containing narrative explanations, executable code, and high-resolution 
 
 ## ⚙️ How to Reproduce
 To run this analysis locally and ensure strict reproducibility, follow these steps:
