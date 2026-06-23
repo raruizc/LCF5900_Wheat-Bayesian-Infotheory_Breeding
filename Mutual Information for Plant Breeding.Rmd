@@ -1,0 +1,326 @@
+---
+title: "Open Science - Mutual Information to Plant Breeding"
+author: "Ricardo Ruiz"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    highlight: tango
+    number_sections: true
+  pdf_document:
+    toc: true
+subtitle: "Genotype-by-Environment Interaction, Information Theory, and Multi-Trait
+  Selection in Rainfed Wheat"
+---
+
+```{r setup, include=FALSE}
+# Global configuration for chunks
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 10, fig.height = 6)
+```
+
+# Study Description & Scientific Context
+
+This study evaluates the agronomic performance, phenotypic adaptability, and stability of several wheat cultivars (*Triticum aestivum* L.) under rainfed conditions across different environments in the Southern and Southeastern regions of Minas Gerais State, Brazil. Cultivating wheat under rainfed conditions in these sub-regions involves managing erratic climate dynamics, rainfall fluctuations, and temperature stresses, which naturally amplify **Genotype-by-Environment (GxE) Interactions**. 
+
+To maximize experimental precision and control micro-environmental variations within trials, field experiments were conducted under an **Incomplete Block Design using a 4x4 Lattice layout** with multiple replications. The agronomic attributes analyzed include:
+* **Grain Yield (`PROD`):** Evaluated in kg/ha, serving as the primary target trait for selection.
+* **Hectoliter Weight (`PH`):** An essential indicator of volumetric mass and technological grain quality.
+* **Thousand-Kernel Weight (`PMS`):** Measured in grams, acting as a crucial yield component related to grain fill.
+* **Plant Height (`ALT`):** Measured in centimeters, representing structural development and lodging resistance.
+
+## Open Science Rationale
+In accordance with **Open Science and Reproducibility frameworks**, this pipeline departs from rigid frequentist metrics (such as classic ANOVA or fixed-weight indices). Instead, it introduces a collaborative, fully data-driven pipeline that merges:
+1.  **Bayesian Hierarchical Mixed Models** to natively absorb spatial constraints from the 4x4 Lattice layout, accounting for experimental unbalance and shrinkage without losing degrees of freedom.
+2.  **Information Theory Metrics (Shannon Entropy & Mutual Information)** to analyze GxE connectivity, map non-linear trial networks, measure predictability as stability, and automatically construct a selection index whose trait weights are mathematically defined by mutual information channels.
+
+---
+
+# Part 1: Environment Setup & Data Wrangling
+
+We begin by resetting the workspace memory, setting a random seed to guarantee strict computational reproducibility, and loading packages related to the tidyverse, Bayesian modeling (`rstanarm`), and informational entropy (`infotheo`).
+
+```{r preparation}
+# Clear workspace memory
+rm(list = ls())
+
+# Load required packages
+library(tidyverse)
+library(rstanarm)  # Pre-compiled Bayesian Applied Regression Modeling via Stan
+library(tidybayes) # Data manipulation of posterior distributions
+library(infotheo)  # Information Theory metrics (Entropy and Mutual Information)
+library(readxl)    # Robust reading of Excel structures
+
+# Define seed for reproducible MCMC chains (Open Science Principle!)
+set.seed(2026)
+
+# Read and prepare the experimental data DIRECTLY from GitHub
+url_github <- "https://raw.githubusercontent.com/raruizc/LCF5900_Wheat-Bayesian-Infotheory_Breeding/main/Data.xlsx"
+
+# Create a temporary file to store the downloaded Excel
+temp_xlsx <- tempfile(fileext = ".xlsx")
+
+# Download the file (mode = "wb" is strictly required for binary files like .xlsx)
+download.file(url_github, destfile = temp_xlsx, mode = "wb")
+
+# Read the data from the temporary downloaded file
+dados <- read_excel(temp_xlsx, sheet = "Data") %>%
+  mutate(
+    TREATMENT = as.factor(TREATMENT),
+    AMBIENTE  = as.factor(AMBIENTE),
+    REP       = as.factor(REP),
+    IBLOCK    = as.factor(IBLOCK),
+    PLOT      = as.factor(PLOT)
+  )
+
+# Remove the temporary file from the system to free up space
+unlink(temp_xlsx)
+```
+
+---
+
+# Part 2: Stage A - Hierarchical Bayesian Linear Mixed Modeling
+
+Traditional frequentist analysis relies heavily on complex degrees-of-freedom approximations (e.g., Satterthwaite) and lacks flexibility when handling unbalances or spatial constraints. Under a Bayesian framework, the 4x4 Incomplete Block design is modeled hierarchically. The intra-block variations are modeled via random effects, allowing the algorithm to naturally propagate parameter uncertainty directly into the final selection choices.
+
+The hierarchical model for Yield (`PROD`) is defined as follows:
+$$\text{PROD} = \mu + \text{AMBIENTE} + \text{TREATMENT} + \text{AMBIENTE:TREATMENT} + \text{REP(AMBIENTE)} + \text{IBLOCK(REP:AMBIENTE)} + \varepsilon$$
+
+Where $\text{AMBIENTE}$ acts as a fixed effect, while $\text{TREATMENT}$, GxE ($\text{AMBIENTE:TREATMENT}$), and spatial factors ($\text{REP}$, $\text{IBLOCK}$) are defined as random effects to trigger shrinkage-corrected conditional modes (Bayesian BLUPs).
+
+```{r bayesian_mcmc, results='hide'}
+# Build the hierarchical formula representing the 4x4 Lattice arrangement
+formula_lmer <- PROD ~ AMBIENTE + (1 | TREATMENT) + (1 | AMBIENTE:TREATMENT) + 
+  (1 | AMBIENTE:REP) + (1 | AMBIENTE:REP:IBLOCK)
+
+print("Starting Bayesian Markov Chain Monte Carlo (MCMC) Sampling...")
+
+# Fit the model using regularizing weakly-informative priors
+modelo_bayes_prod <- stan_lmer(
+  formula = formula_lmer,
+  data = dados,
+  chains = 4, 
+  iter = 2000, 
+  warmup = 1000, 
+  cores = 4, # Employs parallel computing cores
+  seed = 2026
+)
+```
+
+### Genetic Estimates Extraction (Bayesian BLUPs)
+
+We extract the posterior random effect parameters to capture general genetic performance across the region alongside environment-specific interactions.
+
+```{r extract_blups}
+blups_bayes <- ranef(modelo_bayes_prod)
+
+# Main Genetic Potential (Across Environments)
+gen_effects <- blups_bayes$TREATMENT %>%
+  as_tibble(rownames = "TREATMENT") %>%
+  rename(BLUP_PROD_Geral = `(Intercept)`)
+
+# Specific GxE Interaction Deviations
+gxe_effects <- blups_bayes$`AMBIENTE:TREATMENT` %>%
+  as_tibble(rownames = "AMB_TREATMENT") %>%
+  rename(BLUP_PROD_Local = `(Intercept)`) %>%
+  # Disentangle the fused names back to explicit columns
+  separate(AMB_TREATMENT, into = c("AMBIENTE", "TREATMENT"), sep = ":")
+```
+
+---
+
+# Part 3: Stage B - Information Theory Applied to GxE Dynamics
+
+## Non-Linear Trial Connectivity Networks via Mutual Information (MI)
+
+Standard Pearson correlation matrices can only evaluate rigid, linear associations between environments. If a cultivar triggers threshold physiological mechanisms under climatic stress, linear parameters fail to capture the true associative pattern. **Mutual Information (MI)** quantifies the shared information between environments regardless of linearity.
+
+To perform information-theoretic evaluations, continuous posterior GxE yields are partitioned into discrete informational states (quartiles).
+
+```{r wide_and_discretize}
+# Pivot GxE table into a wide environmental format
+dados_gxe_wide <- gxe_effects %>%
+  pivot_wider(names_from = AMBIENTE, values_from = BLUP_PROD_Local) %>%
+  drop_na()
+
+# Discretize continuous vectors using equal frequency bins (4 bins = Quartiles)
+dados_gxe_disc <- discretize(dados_gxe_wide %>% select(-TREATMENT), disc = "equalfreq", nbins = 4)
+
+print("--- Mutual Information Matrix Across Trial Environments ---")
+im_ambientes <- mutinformation(dados_gxe_disc)
+print(im_ambientes)
+```
+
+## Phenotypic Stability Quantified via Shannon Entropy
+
+Under this innovative perspective, **Phenotypic Stability is defined as Low Informational Entropy**. Shannon Entropy measures the uncertainty or unpredictability of a genotype's performance across the trial network:
+$$H(X) = -\sum_{i=1}^{n} P(x_i) \log_2 P(x_i)$$
+
+If a cultivar constantly places within the top-performing quartile across all environmental conditions, its behavior is highly predictable, causing its GxE Entropy to approach zero. Conversely, erratic cultivars that jump unpredictably across different quartiles display high informational entropy (instability).
+
+```{r stability_entropy}
+# Calculate Shannon Entropy for each genotype across the environmental spectrum
+estabilidade_info <- dados_gxe_wide %>%
+  mutate(
+    Entropia_GxE = apply(dados_gxe_disc, 1, function(x) entropy(as.numeric(x)))
+  ) %>%
+  select(TREATMENT, Entropia_GxE) %>%
+  arrange(Entropia_GxE) # Highly stable genotypes are sorted to the top
+```
+
+---
+
+# Part 4: Stage C - Data-Driven Multi-Trait Selection Index (MI-Index)
+
+Traditional agronomic indices rely on arbitrary economic assumptions or subjective user weights. Here, we build the **MI-Index**, where the selective weights of secondary traits (`PH`, `PMS`, `ALT`) are dynamically controlled by the amount of **Mutual Information** they share with the primary objective (`PROD`). Traits showing superior information transmission coefficients with yield naturally receive larger weights.
+
+To prevent variance scales from biasing the calculations (e.g., kg/ha vs. cm vs. grams), traits are standardized via Z-score transformations prior to index construction.
+
+```{r index_formulation}
+# Compute real global phenotypic means per cultivar
+medias_genotipos <- dados %>%
+  group_by(TREATMENT) %>%
+  summarise(
+    PROD_mean = mean(PROD, na.rm = TRUE),
+    PH_mean   = mean(PH, na.rm = TRUE),
+    PMS_mean  = mean(PMS, na.rm = TRUE),
+    ALT_mean  = mean(ALT, na.rm = TRUE)
+  ) %>%
+  drop_na()
+
+# Discretize phenotypic data for informational weights
+dados_traits_disc <- discretize(medias_genotipos %>% select(-TREATMENT), disc = "equalfreq", nbins = 4)
+
+# Calculate Mutual Information channels with Productive Output
+im_PH  <- mutinformation(dados_traits_disc$PROD_mean, dados_traits_disc$PH_mean)
+im_PMS <- mutinformation(dados_traits_disc$PROD_mean, dados_traits_disc$PMS_mean)
+im_ALT <- mutinformation(dados_traits_disc$PROD_mean, dados_traits_disc$ALT_mean)
+
+# Normalize Mutual Information weights to sum 1
+soma_im <- im_PH + im_PMS + im_ALT
+pesos_info <- list(PH = im_PH/soma_im, PMS = im_PMS/soma_im, ALT = im_ALT/soma_im)
+
+print("--- Dynamic Informational Weights Assigned to Secondary Traits ---")
+print(pesos_info)
+
+# Apply Z-score standardization and assemble the MI-Index
+dados_padronizados <- medias_genotipos %>%
+  mutate(across(c(PROD_mean, PH_mean, PMS_mean, ALT_mean), ~ scale(.) %>% as.vector()))
+
+selecao_final <- dados_padronizados %>%
+  mutate(
+    MI_Index = PROD_mean + (PH_mean * pesos_info$PH) + (PMS_mean * pesos_info$PMS) + (ALT_mean * pesos_info$ALT)
+  )
+```
+
+---
+
+# Part 5: Framework Integration & Final Selection Rankings
+
+We execute an inner merge to combine the Bayesian Yield BLUPs, Informational Stability (Entropy), and the Multi-Trait Selective Merit (`MI-Index`).
+
+```{r matrix_unification}
+# Unify all dimensions into a master framework
+resultado_final <- gen_effects %>%
+  left_join(estabilidade_info, by = "TREATMENT") %>%
+  left_join(selecao_final %>% select(TREATMENT, MI_Index), by = "TREATMENT") %>%
+  drop_na()
+
+# Rank genotypes by multi-trait output and penalize by instability (higher entropy)
+tabela_top <- resultado_final %>% 
+  arrange(desc(MI_Index), Entropia_GxE)
+
+knitr::kable(head(tabela_top, 10), digits = 3, 
+             caption = "Table 1: Top 10 Wheat Genotypes Selected via Integrated Bayesian-Informational Analytics.")
+```
+
+---
+
+# Part 6: Reproducible Scientific Visualizations
+
+To avoid label collision and text overlapping on categorical axes, names are rotated 45 degrees and adjusted using horizontal justifications (`hjust = 1`). Automated high-resolution `ggsave` calls are embedded to export production-grade assets instantly.
+
+```{r plot_generation}
+# Plot 1: Main Bayesian Genetic Effects
+grafico_blup <- ggplot(gen_effects, aes(x = reorder(TREATMENT, -BLUP_PROD_Geral), y = BLUP_PROD_Geral)) +
+  geom_col(fill = "steelblue", alpha = 0.8) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
+  labs(
+    title = "Main Genetic Potential (Bayesian BLUPs)",
+    subtitle = "Shrinkage-adjusted across-environment performance base",
+    x = "Wheat Cultivars", y = "Posterior Mean Deviation"
+  )
+
+# Plot 2: Reaction Norms for GxE Interaction
+grafico_gxe <- ggplot(gxe_effects, aes(x = AMBIENTE, y = BLUP_PROD_Local, group = TREATMENT, color = TREATMENT)) +
+  geom_line(alpha = 0.5, linewidth = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
+  ) + 
+  labs(
+    title = "Reaction Norms: GxE Interaction Trends",
+    subtitle = "Bayesian local environment random deviations",
+    x = "Trial Environments", y = "Local BLUP Value"
+  )
+
+# Plot 3: Environmental Network Heatmap via Mutual Information
+im_df <- as.data.frame(im_ambientes) %>%
+  rownames_to_column(var = "Ambiente1") %>%
+  pivot_longer(cols = -Ambiente1, names_to = "Ambiente2", values_to = "IM")
+
+grafico_heatmap <- ggplot(im_df, aes(x = Ambiente1, y = Ambiente2, fill = IM)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c(option = "plasma") + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
+  labs(
+    title = "Environmental Connectivity Matrix",
+    subtitle = "Heatmap of shared Mutual Information channels",
+    x = "", y = "", fill = "MI Bits"
+  )
+
+# Plot 4: The Selection Quadrant - MI-Index vs. Shannon Entropy
+grafico_final <- ggplot(resultado_final, aes(x = Entropia_GxE, y = MI_Index, label = TREATMENT)) +
+  geom_point(color = "darkgreen", size = 3, alpha = 0.7) +
+  geom_text(vjust = -0.8, hjust = 0.5, size = 3, check_overlap = TRUE) +
+  geom_vline(xintercept = mean(resultado_final$Entropia_GxE), linetype = "dashed", color = "red") +
+  geom_hline(yintercept = mean(resultado_final$MI_Index), linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(
+    title = "Multi-Trait Index Performance vs. Informational Stability",
+    subtitle = "Red dashed lines indicate population means",
+    x = "Shannon Entropy (GxE Uncertainty -> Closer to 0 is MORE STABLE)",
+    y = "MI-Index (Overall Agronomic Merit -> Higher is BETTER)"
+  )
+
+# Print plots within HTML document
+print(grafico_blup)
+print(grafico_gxe)
+print(grafico_heatmap)
+print(grafico_final)
+
+# Silently save high-resolution publication-quality PNG assets (300 DPI)
+ggsave("01_BLUPs_Bayesianos.png", plot = grafico_blup, width = 10, height = 6, dpi = 300)
+ggsave("02_Norma_Reacao_GxE.png", plot = grafico_gxe, width = 10, height = 6, dpi = 300)
+ggsave("03_Heatmap_Ambientes.png", plot = grafico_heatmap, width = 8, height = 6, dpi = 300)
+ggsave("04_Selecao_Estabilidade.png", plot = grafico_final, width = 10, height = 6, dpi = 300)
+```
+
+---
+
+# Part 7: Scientific Interpretation Guidelines
+
+## The Environmental Connectivity Heatmap (Plot 3)
+The matrix reveals the informational redundancy between testing locations. Environments showing high Mutual Information values (lighter/brighter cells) share strong common denominators in how they rank the wheat cultivars. From an Open Science resource-allocation perspective, if two locations share nearly identical informational profiles, a breeding program can optimize costs by reducing testing intensity in one of them without losing diagnostic accuracy.
+
+## The Selection Quadrant (Plot 4)
+The intersection of the red dashed lines partitions the selection space into four distinct ecological quadrants:
+1.  **Top-Left Quadrant (High MI-Index & Low Entropy):** *The Target Zone.* Cultivars inside this zone combine premium multi-trait performance across yield, weight, and architecture while exhibiting low informational uncertainty. They are robust, highly predictable, and safe for wide recommendation across the Southern region of Minas Gerais.
+2.  **Top-Right Quadrant (High MI-Index & High Entropy):** *Specific Adaptability.* Cultivars that excel in overall merit but are highly unstable. They perform exceptionally well in optimal conditions but drop sharply under stress. They should be selected only for targeted macro-environments.
+3.  **Bottom-Left Quadrant (Low MI-Index & Low Entropy):** *Stable but Low Performing.* Predictable cultivars that consistently yield below the regional average. Culturally reliable but economically undesirable.
+4.  **Bottom-Right Quadrant (Low MI-Index & High Entropy):** *Unpredictable Poor Performers.* Genotypes exhibiting low performance paired with highly volatile behavior across sites. These lines should be purged from the breeding pipeline immediately.
