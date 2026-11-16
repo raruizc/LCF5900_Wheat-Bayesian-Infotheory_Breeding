@@ -13,14 +13,15 @@ To overcome the limitations of rigid frequentist methods, this project introduce
 ## 📂 Repository Structure
 * `Data.xlsx`: Raw experimental phenotypic dataset (Yield, Hectoliter Weight, Thousand-Kernel Weight, Plant Height) collected across multiple environments.
 * `Mutual Information for Plant Breeding.Rmd`: The core R Markdown script containing the fully reproducible pipeline.
-* `Mutual-Information-for-Plant-Breeding.pdf`: The compiled scientific report containing narrative explanations, executable code, and high-resolution 
+* `Mutual-Information-for-Plant-Breeding.pdf`: The compiled scientific report containing narrative explanations, executable code, and high-resolution figures.
+* `Mutual-Information-for-Plant-Breeding.html`: The same report in HTML format.
 
 ## ⚙️ How to Reproduce
 To run this analysis locally and ensure strict reproducibility, follow these steps:
 
 1. Clone this repository:
    ```bash
-   git clone [https://github.com/your-username/wheat-bayesian-infotheory.git](https://github.com/your-username/wheat-bayesian-infotheory.git)
+   git clone https://github.com/raruizc/LCF5900_Wheat-Bayesian-Infotheory_Breeding.git
    ```
 
 2. Open the R project or set your working directory to the cloned folder.
